@@ -14,7 +14,6 @@ substitutions:
   _SEC_DSN: "POSTGRES_DSN_DEV"
   _SEC_PWD: "POSTGRES_PWD_DEV"
   _SEC_CXKEY: "CX_WEBHOOK_APIKEY_DEV"
-  _RUN_SA: "bot-sa-dev@$PROJECT_ID.iam.gserviceaccount.com"
 
 steps:
   - name: gcr.io/cloud-builders/docker
@@ -38,7 +37,7 @@ steps:
         --image="${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/botapp:${_TAG}" \
         --region=${_REGION} \
         --allow-unauthenticated \
-        --service-account=${_RUN_SA} \
+        --service-account="bot-sa-dev@${PROJECT_ID}.iam.gserviceaccount.com" \
         --vpc-connector=${_CONNECTOR} \
         --vpc-egress=private-ranges-only \
         --add-cloudsql-instances=$PROJECT_ID:${_REGION}:${_SQL_INSTANCE} \
