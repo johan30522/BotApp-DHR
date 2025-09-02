@@ -16,6 +16,33 @@ substitutions:
   _SEC_CXKEY: "CX_WEBHOOK_APIKEY_DEV"
 
 steps:
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    id: debug-vars
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        echo "=== Cloud Build built-in variables ==="
+        echo "PROJECT_ID:      $PROJECT_ID"
+        echo "BUILD_ID:        $BUILD_ID"
+        echo "TRIGGER_NAME:    $TRIGGER_NAME"
+        echo "COMMIT_SHA:      $COMMIT_SHA"
+        echo "SHORT_SHA:       $SHORT_SHA"
+        echo "BRANCH_NAME:     $BRANCH_NAME"
+        echo "TAG_NAME:        $TAG_NAME"
+        echo "REPO_NAME:       $REPO_NAME"
+        echo "=== Custom substitutions ==="
+        echo "_REGION:         ${_REGION}"
+        echo "_SERVICE:        ${_SERVICE}"
+        echo "_REPO:           ${_REPO}"
+        echo "_TAG:            ${_TAG}"
+        echo "_CONNECTOR:      ${_CONNECTOR}"
+        echo "_SQL_INSTANCE:   ${_SQL_INSTANCE}"
+        echo "_REDIS_HOST:     ${_REDIS_HOST}"
+        echo "_REDIS_PORT:     ${_REDIS_PORT}"
+        echo "_SEC_DSN:        ${_SEC_DSN}"
+        echo "_SEC_PWD:        ${_SEC_PWD}"
+        echo "_SEC_CXKEY:      ${_SEC_CXKEY}"
   - name: gcr.io/cloud-builders/docker
     args:
       - build
