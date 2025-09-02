@@ -32,23 +32,22 @@ steps:
   - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
     entrypoint: bash
     args:
-      - -c
-      - |
-        IMG="${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/botapp:${_TAG}"
-        gcloud run deploy ${_SERVICE} \
-          --image=${IMG} \
-          --region=${_REGION} \
-          --allow-unauthenticated \
-          --service-account=${_RUN_SA} \
-          --vpc-connector=${_CONNECTOR} \
-          --vpc-egress=private-ranges-only \
-          --add-cloudsql-instances=$PROJECT_ID:${_REGION}:${_SQL_INSTANCE} \
-          --set-secrets="ConnectionStrings__Postgres=${_SEC_DSN}:latest" \
-          --set-secrets="Db__Password=${_SEC_PWD}:latest" \
-          --set-secrets="Cx__WebhookApiKey=${_SEC_CXKEY}:latest" \
-          --set-env-vars="Redis__Host=${_REDIS_HOST},Redis__Port=${_REDIS_PORT}" \
-          --cpu=1 --memory=512Mi --timeout=120 \
-          --min-instances=0 --max-instances=3
+    - -c
+    - |
+      gcloud run deploy ${_SERVICE} \
+        --image="${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/botapp:${_TAG}" \
+        --region=${_REGION} \
+        --allow-unauthenticated \
+        --service-account=${_RUN_SA} \
+        --vpc-connector=${_CONNECTOR} \
+        --vpc-egress=private-ranges-only \
+        --add-cloudsql-instances=$PROJECT_ID:${_REGION}:${_SQL_INSTANCE} \
+        --set-secrets="ConnectionStrings__Postgres=${_SEC_DSN}:latest" \
+        --set-secrets="Db__Password=${_SEC_PWD}:latest" \
+        --set-secrets="Cx__WebhookApiKey=${_SEC_CXKEY}:latest" \
+        --set-env-vars="Redis__Host=${_REDIS_HOST},Redis__Port=${_REDIS_PORT}" \
+        --cpu=1 --memory=512Mi --timeout=120 \
+        --min-instances=0 --max-instances=3
 
 images:
   - "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/botapp:${_TAG}"
