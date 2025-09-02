@@ -5,8 +5,8 @@ options:
 substitutions:
   _REGION: "us-central1"
   _SERVICE: "botapp-dev"
-  _REPO: "botrepo"      # <-- debe existir en Artifact Registry
-  _TAG: "dev"           # o usa ${SHORT_SHA} si querés tag por commit
+  _REPO: "botrepo"        # Debe existir en Artifact Registry (DOCKER, us-central1)
+  _TAG: "dev"             # O usa ${SHORT_SHA}
   _CONNECTOR: "bot-connector-dev"
   _SQL_INSTANCE: "bot-sql-dev"
   _REDIS_HOST: "10.42.210.99"
@@ -17,23 +17,20 @@ substitutions:
   _RUN_SA: "bot-sa-dev@$PROJECT_ID.iam.gserviceaccount.com"
 
 steps:
-  # 1) Build
-  - name: "gcr.io/cloud-builders/docker"
+  - name: gcr.io/cloud-builders/docker
     args:
       - build
       - -t
       - "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/botapp:${_TAG}"
       - .
 
-  # 2) Push
-  - name: "gcr.io/cloud-builders/docker"
+  - name: gcr.io/cloud-builders/docker
     args:
       - push
       - "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/botapp:${_TAG}"
 
-  # 3) Deploy a Cloud Run
-  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk:slim"
-    entrypoint: "bash"
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: bash
     args:
       - -c
       - |
