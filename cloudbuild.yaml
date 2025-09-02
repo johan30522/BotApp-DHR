@@ -2,15 +2,14 @@
 options:
   logging: CLOUD_LOGGING_ONLY
 
-
 substitutions:
   _REGION: "us-central1"
   _SERVICE: "botapp-dev"
-  _REPO: "botrepo"
-  _IMAGE: "us-central1-docker.pkg.dev/$PROJECT_ID/$_REPO/botapp:dev"
+  _REPO: "botrepo"      # <-- debe existir en Artifact Registry
+  _TAG: "dev"           # o usa ${SHORT_SHA} si querés tag por commit
   _CONNECTOR: "bot-connector-dev"
   _SQL_INSTANCE: "bot-sql-dev"
-  _REDIS_HOST: "10.42.210.99"   # <-- tu Memorystore IP privada
+  _REDIS_HOST: "10.42.210.99"
   _REDIS_PORT: "6379"
   _SEC_DSN: "POSTGRES_DSN_DEV"
   _SEC_PWD: "POSTGRES_PWD_DEV"
@@ -18,34 +17,41 @@ substitutions:
   _RUN_SA: "bot-sa-dev@$PROJECT_ID.iam.gserviceaccount.com"
 
 steps:
-# 1) Build
-- name: "gcr.io/cloud-builders/docker"
-  args: ["build","-t","$_IMAGE","."]
+  # 1) Build
+  - name: "gcr.io/cloud-builders/docker"
+    args:
+      - build
+      - -t
+      - "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/botapp:${_TAG}"
+      - .
 
-# 2) Push
-- name: "gcr.io/cloud-builders/docker"
-  args: ["push","$_IMAGE"]
+  # 2) Push
+  - name: "gcr.io/cloud-builders/docker"
+    args:
+      - push
+      - "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/botapp:${_TAG}"
 
-# 3) Deploy a Cloud Run
-- name: "gcr.io/google.com/cloudsdktool/cloud-sdk:slim"
-  entrypoint: "bash"
-  args:
-    - "-c"
-    - |
-      gcloud run deploy $_SERVICE \
-        --image=$_IMAGE \
-        --region=$_REGION \
-        --allow-unauthenticated \
-        --service-account=$_RUN_SA \
-        --vpc-connector=$_CONNECTOR \
-        --vpc-egress=private-ranges-only \
-        --add-cloudsql-instances=$PROJECT_ID:$_REGION:$_SQL_INSTANCE \
-        --set-secrets="ConnectionStrings__Postgres=$_SEC_DSN:latest" \
-        --set-secrets="Db__Password=$_SEC_PWD:latest" \
-        --set-secrets="Cx__WebhookApiKey=$_SEC_CXKEY:latest" \
-        --set-env-vars="Redis__Host=$_REDIS_HOST,Redis__Port=$_REDIS_PORT" \
-        --cpu=1 --memory=512Mi --timeout=120 \
-        --min-instances=0 --max-instances=3
+  # 3) Deploy a Cloud Run
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk:slim"
+    entrypoint: "bash"
+    args:
+      - -c
+      - |
+        IMG="${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/botapp:${_TAG}"
+        gcloud run deploy ${_SERVICE} \
+          --image=${IMG} \
+          --region=${_REGION} \
+          --allow-unauthenticated \
+          --service-account=${_RUN_SA} \
+          --vpc-connector=${_CONNECTOR} \
+          --vpc-egress=private-ranges-only \
+          --add-cloudsql-instances=$PROJECT_ID:${_REGION}:${_SQL_INSTANCE} \
+          --set-secrets="ConnectionStrings__Postgres=${_SEC_DSN}:latest" \
+          --set-secrets="Db__Password=${_SEC_PWD}:latest" \
+          --set-secrets="Cx__WebhookApiKey=${_SEC_CXKEY}:latest" \
+          --set-env-vars="Redis__Host=${_REDIS_HOST},Redis__Port=${_REDIS_PORT}" \
+          --cpu=1 --memory=512Mi --timeout=120 \
+          --min-instances=0 --max-instances=3
 
 images:
-- "$_IMAGE"
+  - "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/botapp:${_TAG}"
