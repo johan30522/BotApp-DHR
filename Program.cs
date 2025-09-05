@@ -15,13 +15,22 @@ builder.Services.AddDbContext<BotDbContext>(opt =>
     opt.UseNpgsql(cs, npg =>
     {
         npg.EnableRetryOnFailure(5, TimeSpan.FromSeconds(2), null); // resiliencia
+
+        
+        npg.MigrationsHistoryTable("__EFMigrationsHistory", "bot");
     });
 });
 
 // Add services to the container.
 builder.Services.AddSingleton<RedisClient>();
+builder.Services.AddScoped<SessionService>();
+builder.Services.AddScoped<DenunciasService>();
+builder.Services.AddScoped<ExpedientesService>();
 
-builder.Services.AddControllers();
+builder.Services.AddControllers().AddJsonOptions(o =>
+{
+    o.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
+});
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();

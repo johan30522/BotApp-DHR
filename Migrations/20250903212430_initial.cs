@@ -7,16 +7,20 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace BotApp.Migrations
 {
     /// <inheritdoc />
-    public partial class InitialSchema : Migration
+    public partial class initial : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
+            migrationBuilder.EnsureSchema(
+                name: "bot");
+
             migrationBuilder.AlterDatabase()
                 .Annotation("Npgsql:PostgresExtension:pgcrypto", ",,");
 
             migrationBuilder.CreateTable(
                 name: "Denuncias",
+                schema: "bot",
                 columns: table => new
                 {
                     Id = table.Column<long>(type: "bigint", nullable: false)
@@ -33,6 +37,7 @@ namespace BotApp.Migrations
 
             migrationBuilder.CreateTable(
                 name: "Events",
+                schema: "bot",
                 columns: table => new
                 {
                     Id = table.Column<long>(type: "bigint", nullable: false)
@@ -50,6 +55,7 @@ namespace BotApp.Migrations
 
             migrationBuilder.CreateTable(
                 name: "Expedientes",
+                schema: "bot",
                 columns: table => new
                 {
                     Numero = table.Column<string>(type: "text", nullable: false),
@@ -64,6 +70,7 @@ namespace BotApp.Migrations
 
             migrationBuilder.CreateTable(
                 name: "Messages",
+                schema: "bot",
                 columns: table => new
                 {
                     Id = table.Column<long>(type: "bigint", nullable: false)
@@ -82,6 +89,7 @@ namespace BotApp.Migrations
 
             migrationBuilder.CreateTable(
                 name: "Sessions",
+                schema: "bot",
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uuid", nullable: false, defaultValueSql: "gen_random_uuid()"),
@@ -99,6 +107,7 @@ namespace BotApp.Migrations
 
             migrationBuilder.CreateTable(
                 name: "SyncRunErrors",
+                schema: "bot",
                 columns: table => new
                 {
                     Id = table.Column<long>(type: "bigint", nullable: false)
@@ -115,6 +124,7 @@ namespace BotApp.Migrations
 
             migrationBuilder.CreateTable(
                 name: "SyncRuns",
+                schema: "bot",
                 columns: table => new
                 {
                     Id = table.Column<long>(type: "bigint", nullable: false)
@@ -133,36 +143,43 @@ namespace BotApp.Migrations
 
             migrationBuilder.CreateIndex(
                 name: "IX_Denuncias_CreatedAtUtc",
+                schema: "bot",
                 table: "Denuncias",
                 column: "CreatedAtUtc");
 
             migrationBuilder.CreateIndex(
                 name: "IX_Events_Type_CreatedAtUtc",
+                schema: "bot",
                 table: "Events",
                 columns: new[] { "Type", "CreatedAtUtc" });
 
             migrationBuilder.CreateIndex(
                 name: "IX_Expedientes_LastModifiedUtc",
+                schema: "bot",
                 table: "Expedientes",
                 column: "LastModifiedUtc");
 
             migrationBuilder.CreateIndex(
                 name: "IX_Messages_SessionId_CreatedAtUtc",
+                schema: "bot",
                 table: "Messages",
                 columns: new[] { "SessionId", "CreatedAtUtc" });
 
             migrationBuilder.CreateIndex(
                 name: "IX_Sessions_Channel_ChannelUserId",
+                schema: "bot",
                 table: "Sessions",
                 columns: new[] { "Channel", "ChannelUserId" });
 
             migrationBuilder.CreateIndex(
                 name: "IX_SyncRunErrors_SyncRunId",
+                schema: "bot",
                 table: "SyncRunErrors",
                 column: "SyncRunId");
 
             migrationBuilder.CreateIndex(
                 name: "IX_SyncRuns_StartedAtUtc",
+                schema: "bot",
                 table: "SyncRuns",
                 column: "StartedAtUtc");
         }
@@ -171,25 +188,32 @@ namespace BotApp.Migrations
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.DropTable(
-                name: "Denuncias");
+                name: "Denuncias",
+                schema: "bot");
 
             migrationBuilder.DropTable(
-                name: "Events");
+                name: "Events",
+                schema: "bot");
 
             migrationBuilder.DropTable(
-                name: "Expedientes");
+                name: "Expedientes",
+                schema: "bot");
 
             migrationBuilder.DropTable(
-                name: "Messages");
+                name: "Messages",
+                schema: "bot");
 
             migrationBuilder.DropTable(
-                name: "Sessions");
+                name: "Sessions",
+                schema: "bot");
 
             migrationBuilder.DropTable(
-                name: "SyncRunErrors");
+                name: "SyncRunErrors",
+                schema: "bot");
 
             migrationBuilder.DropTable(
-                name: "SyncRuns");
+                name: "SyncRuns",
+                schema: "bot");
         }
     }
 }

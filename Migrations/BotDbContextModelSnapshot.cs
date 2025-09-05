@@ -17,6 +17,7 @@ namespace BotApp.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
+                .HasDefaultSchema("bot")
                 .HasAnnotation("ProductVersion", "9.0.8")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
@@ -48,7 +49,7 @@ namespace BotApp.Migrations
 
                     b.HasIndex("CreatedAtUtc");
 
-                    b.ToTable("Denuncias");
+                    b.ToTable("Denuncias", "bot");
                 });
 
             modelBuilder.Entity("BotApp.Models.EventLog", b =>
@@ -79,7 +80,7 @@ namespace BotApp.Migrations
 
                     b.HasIndex("Type", "CreatedAtUtc");
 
-                    b.ToTable("Events");
+                    b.ToTable("Events", "bot");
                 });
 
             modelBuilder.Entity("BotApp.Models.Expediente", b =>
@@ -101,7 +102,7 @@ namespace BotApp.Migrations
 
                     b.HasIndex("LastModifiedUtc");
 
-                    b.ToTable("Expedientes");
+                    b.ToTable("Expedientes", "bot");
                 });
 
             modelBuilder.Entity("BotApp.Models.Message", b =>
@@ -135,7 +136,7 @@ namespace BotApp.Migrations
 
                     b.HasIndex("SessionId", "CreatedAtUtc");
 
-                    b.ToTable("Messages");
+                    b.ToTable("Messages", "bot");
                 });
 
             modelBuilder.Entity("BotApp.Models.Session", b =>
@@ -170,7 +171,7 @@ namespace BotApp.Migrations
 
                     b.HasIndex("Channel", "ChannelUserId");
 
-                    b.ToTable("Sessions");
+                    b.ToTable("Sessions", "bot");
                 });
 
             modelBuilder.Entity("BotApp.Models.SyncRun", b =>
@@ -204,7 +205,7 @@ namespace BotApp.Migrations
 
                     b.HasIndex("StartedAtUtc");
 
-                    b.ToTable("SyncRuns");
+                    b.ToTable("SyncRuns", "bot");
                 });
 
             modelBuilder.Entity("BotApp.Models.SyncRunError", b =>
@@ -233,7 +234,7 @@ namespace BotApp.Migrations
 
                     b.HasIndex("SyncRunId");
 
-                    b.ToTable("SyncRunErrors");
+                    b.ToTable("SyncRunErrors", "bot");
                 });
 #pragma warning restore 612, 618
         }

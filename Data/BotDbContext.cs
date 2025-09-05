@@ -17,6 +17,8 @@ namespace BotApp.Data
 
         protected override void OnModelCreating(ModelBuilder b)
         {
+            // crear en el schema "bot"
+            b.HasDefaultSchema("bot");
             // snake_case para Postgres (opcional pero recomendable)
             b.HasPostgresExtension("pgcrypto");
             b.UseSerialColumns(); // si querés identity
