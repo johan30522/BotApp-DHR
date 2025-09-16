@@ -1,12 +1,20 @@
 using BotApp.Data;
 using BotApp.Filters;
 using BotApp.Services;
+using Google.Apis.Auth.OAuth2;
+using Google.Apis.Auth.OAuth2;
 using Google.Cloud.AIPlatform.V1;
+using Google.Cloud.Dialogflow.Cx.V3;
+using DE = Google.Cloud.DiscoveryEngine.V1;
+using Grpc.Auth;
+using Grpc.Auth;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Internal;
 using Microsoft.IdentityModel.Tokens;
+using StackExchange.Redis;
 using System.Text;
+
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -27,6 +35,15 @@ builder.Services.AddDbContext<BotDbContext>(opt =>
     });
 });
 
+// Se agrega la configuracion para Redis
+var redisCfg = $"{builder.Configuration["Redis:Host"]}:{builder.Configuration["Redis:Port"]}";
+builder.Services.AddSingleton<IConnectionMultiplexer>(_ => ConnectionMultiplexer.Connect(redisCfg));
+// Cliente de estado de Redis
+builder.Services.AddSingleton<SessionStateStore>();
+
+// se registra Cliente de Cx
+builder.Services.AddSingleton<CxDetectService>();
+
 // Add services to the container.
 builder.Services.AddSingleton<RedisClient>();
 builder.Services.AddScoped<SessionService>();
@@ -36,6 +53,14 @@ builder.Services.AddScoped<TokenService>();
 builder.Services.AddScoped<MetaSignatureFilter>();
 builder.Services.AddScoped<TwilioSignatureFilter>();
 builder.Services.AddScoped<GeminiRagService>();
+
+// Servicios para Vertex Search y Gemini
+builder.Services.AddSingleton<ISearchService, SearchService>();
+builder.Services.AddSingleton<IGeminiService, GeminiService>();
+builder.Services.AddScoped<IQueryRewriteService, QueryRewriteService>();
+builder.Services.AddScoped<IConversationRagService, ConversationRagService>();
+
+
 
 builder.Services.AddSingleton<PredictionServiceClient>(sp=>
 {
@@ -60,7 +85,7 @@ builder.Services.AddSwaggerGen();
 // (Opcional) CORS para tu webchat
 builder.Services.AddCors(opt => {
     opt.AddPolicy("WebClient", p => p
-        .WithOrigins("https://localhost:3000") // ajustá tu origen
+        .WithOrigins("http://localhost:5173") // ajustá tu origen
         .AllowAnyHeader().AllowAnyMethod());
 });
 var jwtCfg = builder.Configuration.GetSection("Jwt");
@@ -85,6 +110,63 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     });
 
 builder.Services.AddAuthorization();
+// 1) Credenciales base (usuario o SA). Pueden ser las mismas para ambos.
+GoogleCredential baseCred = GoogleCredential.GetApplicationDefault();
+// obtiene el settings de configuraciones
+var cfg = builder.Configuration;
+
+// ---------- Dialogflow CX (flujo-bot-dhr) ----------
+var cxEndpoint = cfg["Cx:Endpoint"] ?? "us-central1-dialogflow.googleapis.com";
+var cxQuotaProject = cfg["Cx:QuotaProject"] ?? "flujo-bot-dhr";
+var cxCred = baseCred.CreateWithQuotaProject(cxQuotaProject);
+
+builder.Services.AddSingleton(_ =>
+    new SessionsClientBuilder
+    {
+        Endpoint = cxEndpoint,
+        ChannelCredentials = cxCred.ToChannelCredentials()
+    }.Build()
+);
+
+// ---------- Vertex AI (rag-dhr) ----------
+var vaLocation = cfg["Gcp:Location"] ?? "us-east4";
+var vaEndpoint = $"{vaLocation}-aiplatform.googleapis.com";
+var vaQuotaProject = cfg["Gcp:ProjectId"] ?? "rag-dhr"; // aquí facturas a rag-dhr
+var vaCred = baseCred.CreateWithQuotaProject(vaQuotaProject);
+
+builder.Services.AddSingleton(_ =>
+    new PredictionServiceClientBuilder
+    {
+        Endpoint = vaEndpoint,
+        ChannelCredentials = vaCred.ToChannelCredentials()
+    }.Build()
+);
+
+
+// ---------- Discovery Engine / Vertex AI Search (para  RAG) ----------
+var deLocation = cfg["GoogleCloud:Location"] ?? "us"; // "us" en tu caso
+var deEndpoint = deLocation == "global"
+    ? "discoveryengine.googleapis.com"
+    : $"{deLocation}-discoveryengine.googleapis.com";
+
+// El proyecto que va a facturar las llamadas de Search (normalmente el mismo ProjectId)
+var deQuotaProject = cfg["GoogleCloud:ProjectId"];
+
+// IMPORTANTE: algunos entornos piden scope explícito. Cloud Platform cubre todo.
+var deCred = baseCred
+    .CreateScoped("https://www.googleapis.com/auth/cloud-platform")
+    .CreateWithQuotaProject(deQuotaProject);
+
+// Cliente de Discovery Engine con tu ADC + quota project + endpoint regional
+builder.Services.AddSingleton(_ =>
+    new DE.SearchServiceClientBuilder
+    {
+        Endpoint = deEndpoint,
+        ChannelCredentials = deCred.ToChannelCredentials()
+    }.Build()
+);
+
+
 
 var app = builder.Build();
 

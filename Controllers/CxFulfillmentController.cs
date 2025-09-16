@@ -14,16 +14,22 @@ namespace BotApp.Controllers
         private readonly DenunciasService _denuncias;
         private readonly ExpedientesService _expedientes;
         private readonly GeminiRagService _rag;
+        private readonly SessionStateStore _state;
+        private readonly IConversationRagService _convRag;
         public CxFulfillmentController(
            IConfiguration cfg,
            DenunciasService denuncias,
            ExpedientesService expedientes,
-           GeminiRagService rag)
+           GeminiRagService rag,
+           SessionStateStore state,
+           IConversationRagService convRag)
         {
             _cfg = cfg;
             _denuncias = denuncias;
             _expedientes = expedientes;
             _rag = rag;
+            _state = state;
+            _convRag = convRag;
         }
 
         [HttpPost]
@@ -93,21 +99,23 @@ namespace BotApp.Controllers
         /// <returns></returns>
         private async Task<string> HandleQnA(FulfillmentRequest body, CancellationToken ct)
         {
-            // lee el parámetro "q" (ajusta si tu intent usa otro nombre)
             var pregunta = body.sessionInfo?.parameters?["q"]?.ToString()?.Trim();
+            var sid = Guid.Parse(body.sessionInfo?.parameters?["sessionId"]?.ToString()?.Trim());
 
+            if (sid == Guid.Empty) return "Error interno: sesión inválida.";
             if (string.IsNullOrWhiteSpace(pregunta))
                 return "¿Podría indicarme su consulta con un poco más de detalle?";
 
             try
             {
-                // Presupuesto de tiempo para no agotar el timeout de CX
                 using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                cts.CancelAfter(TimeSpan.FromSeconds(20)); // ajusta según tu p95
+                cts.CancelAfter(TimeSpan.FromSeconds(20));
 
-                var answer = await _rag.AskGeminiAsync(pregunta, cts.Token);
+                //  usa el orquestador que combina historia + Discovery + Gemini
+                var answer = await _convRag.AskAsync(sid, pregunta, cts.Token);
+
                 return string.IsNullOrWhiteSpace(answer)
-                    ? "No encuentro información suficiente para darle una respuesta exacta en este momento.\n\nMás información: https://www.dhr.go.cr/"
+                    ? "No encuentro información suficiente para darle una respuesta exacta en este momento."
                     : answer;
             }
             catch (OperationCanceledException)
@@ -116,9 +124,9 @@ namespace BotApp.Controllers
             }
             catch (Exception)
             {
-                // loggear si tienes ILogger
                 return "Tuvimos un inconveniente al consultar la información. Por favor, inténtelo de nuevo.";
             }
         }
+
     }
 }
