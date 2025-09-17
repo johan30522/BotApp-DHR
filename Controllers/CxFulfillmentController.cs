@@ -43,13 +43,42 @@ namespace BotApp.Controllers
             var tag = body.fulfillmentInfo?.tag ?? "";
             var userId = body.sessionInfo?.parameters?.GetValueOrDefault("channelUserId")?.ToString();
 
-            string reply = tag switch
+            string reply;
+            Dictionary<string, object?>? resets = null;
+
+            switch (tag)
             {
-                "CrearDenuncia" => await HandleCrearDenuncia(body, userId, ct),
-                "ConsultarExpediente" => await HandleConsultarExpediente(body, ct),
-                "QnA" => await HandleQnA(body, ct),
-                _ => "Lo siento, no entendí la acción solicitada."
-            };
+                case "CrearDenuncia":
+                    reply = await HandleCrearDenuncia(body, userId, ct);
+                    resets = new Dictionary<string, object?>
+                    {
+                        ["nombre"] = null,
+                        ["cedula"] = null,
+                        ["ubicacion"] = null,
+                        ["descripcion"] = null
+                    };
+                    break;
+
+                case "ConsultarExpediente":
+                    reply = await HandleConsultarExpediente(body, ct);
+                    resets = new Dictionary<string, object?>
+                    {
+                        ["numeroexpediente"] = null
+                    };
+                    break;
+
+                case "QnA":
+                    reply = await HandleQnA(body, ct);
+                    resets = new Dictionary<string, object?>
+                    {
+                        ["q"] = null
+                    };
+                    break;
+
+                default:
+                    reply = "Lo siento, no entendí la acción solicitada.";
+                    break;
+            }
 
             return Ok(new
             {
@@ -57,26 +86,44 @@ namespace BotApp.Controllers
                 {
                     messages = new[]
                     {
-                        new FulfillmentMessage
-                        {
-                            text = new FulfillmentText { text = new[] { reply } }
-                        }
-                    }
+                new FulfillmentMessage
+                {
+                    text = new FulfillmentText { text = new[] { reply } }
+                }
+            }
+                },
+                // reseteamos parámetros
+                sessionInfo = new
+                {
+                    parameters = resets
                 }
             });
         }
 
         private async Task<string> HandleCrearDenuncia(FulfillmentRequest body, string? userId, CancellationToken ct)
         {
-            var p = body.sessionInfo.parameters!;
+            //var p = body.sessionInfo.parameters!;
+            //TODO. para pruebas sino viene el userid le asigno uno de prueba
+            if (string.IsNullOrWhiteSpace(userId))
+                userId = "user-123";
+            Console.WriteLine("UserId: " + userId);
+            var p = ParamsInsensitive(body);
+            // TODO.para pruebas si no viene el sessionId le asigno uno de prueba
+            var sessionId= p.ContainsKey("sessionId") && Guid.TryParse(p["sessionId"]?.ToString(), out var sid)
+                ? sid
+                : Guid.TryParse("5800ab38-a354-485a-88ac-61676be9b535", out var tsid) ? tsid : Guid.Empty;
+
             var dto = new DTO.Denuncias.CreateDenunciaDto
             {
-                SessionId = Guid.Parse(p["sessionId"].ToString()!),
+                SessionId = sessionId,
                 Nombre = p["nombre"].ToString()!,
                 Cedula = p["cedula"].ToString()!,
                 Ubicacion = p["ubicacion"].ToString()!,
                 Descripcion = p["descripcion"].ToString()!
             };
+            Console.WriteLine("Crear denuncia: " + System.Text.Json.JsonSerializer.Serialize(dto));
+
+
 
             var resp = await _denuncias.CreateAsync(dto, ct);
             return $"Denuncia #{resp.Id} creada correctamente.";
@@ -84,9 +131,12 @@ namespace BotApp.Controllers
 
         private async Task<string> HandleConsultarExpediente(FulfillmentRequest body, CancellationToken ct)
         {
-            var p = body.sessionInfo.parameters!;
+            //var p = body.sessionInfo.parameters!;
+            var p = ParamsInsensitive(body);
             var numero = p["numeroExpediente"].ToString()!;
+            Console.WriteLine("Consultar expediente: " + numero);
             var resp = await _expedientes.GetByNumeroAsync(numero, ct);
+            Console.WriteLine("Respuesta: " + (resp == null ? "NULL" : resp.Estado));
             return resp == null
                 ? $"No encontré el expediente {numero}."
                 : $"El expediente {resp.Numero} está en estado: {resp.Estado}.";
@@ -126,6 +176,16 @@ namespace BotApp.Controllers
             {
                 return "Tuvimos un inconveniente al consultar la información. Por favor, inténtelo de nuevo.";
             }
+        }
+
+
+
+        private static IDictionary<string, object> ParamsInsensitive(FulfillmentRequest body)
+        {
+            return new Dictionary<string, object>(
+                body.sessionInfo?.parameters ?? new(),
+                StringComparer.OrdinalIgnoreCase
+            );
         }
 
     }

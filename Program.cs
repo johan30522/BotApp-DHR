@@ -128,21 +128,6 @@ builder.Services.AddSingleton(_ =>
     }.Build()
 );
 
-// ---------- Vertex AI (rag-dhr) ----------
-var vaLocation = cfg["Gcp:Location"] ?? "us-east4";
-var vaEndpoint = $"{vaLocation}-aiplatform.googleapis.com";
-var vaQuotaProject = cfg["Gcp:ProjectId"] ?? "rag-dhr"; // aquí facturas a rag-dhr
-var vaCred = baseCred.CreateWithQuotaProject(vaQuotaProject);
-
-builder.Services.AddSingleton(_ =>
-    new PredictionServiceClientBuilder
-    {
-        Endpoint = vaEndpoint,
-        ChannelCredentials = vaCred.ToChannelCredentials()
-    }.Build()
-);
-
-
 // ---------- Discovery Engine / Vertex AI Search (para  RAG) ----------
 var deLocation = cfg["GoogleCloud:Location"] ?? "us"; // "us" en tu caso
 var deEndpoint = deLocation == "global"
