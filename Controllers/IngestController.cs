@@ -22,14 +22,16 @@ namespace BotApp.Controllers
         private readonly ILogger<IngestController> _logger;
         private readonly TokenService _tokens;
         private readonly CxDetectService _cx;
+        private readonly ISseEmitter _sse;
 
 
-        public IngestController(SessionService sessions, TokenService tokens, ILogger<IngestController> logger, CxDetectService cx)
+        public IngestController(SessionService sessions, TokenService tokens, ILogger<IngestController> logger, CxDetectService cx, ISseEmitter sse)
         {
             _tokens = tokens;
             _sessions = sessions;
             _logger = logger;
             _cx = cx;
+            _sse = sse;
         }
 
 
@@ -117,11 +119,13 @@ namespace BotApp.Controllers
                         _logger.LogInformation("IN web/{user}: {text}", msg.ChannelUserId, PiiRedactor.Safe(msg.Text));
                         await _sessions.AddEventAsync(sessionId, type: "Ingest", result: "ok", dataJson: null, ct: ct);
 
+                        var turnId = Guid.NewGuid().ToString();
                         // ----- Llamada a CX Detect -----
                         var cxParams = new Dictionary<string, object?>
                         {
                             ["sessionId"] = sessionId.ToString(),
-                            ["channelUserId"] = msg.ChannelUserId
+                            ["channelUserId"] = msg.ChannelUserId,
+                            ["turnId"] = turnId
                         };
 
                         _logger.LogDebug("→ CX Detect: session='{session}', text='{text}', params={params}",
@@ -148,14 +152,23 @@ namespace BotApp.Controllers
                         finally
                         {
                             sw.Stop();
-                            _logger.LogDebug("⏱️ CX Detect tomó {ms} ms", sw.ElapsedMilliseconds);
+                            _logger.LogDebug("CX Detect tomó {ms} ms", sw.ElapsedMilliseconds);
                         }
 
-                        var firstText = cxResp.QueryResult?.ResponseMessages
-                            .FirstOrDefault()?.Text?.Text_.FirstOrDefault();
+                        // 3) Por cada mensaje de CX (pre-webhook), emitir ACK por SSE
+                        var respMsgs = cxResp.QueryResult?.ResponseMessages ?? new Google.Protobuf.Collections.RepeatedField<Google.Cloud.Dialogflow.Cx.V3.ResponseMessage>();
 
-                        _logger.LogDebug("← CX respuesta: hasText={hasText}, firstText='{firstText}'",
-                            !string.IsNullOrWhiteSpace(firstText), PiiRedactor.Safe(firstText));
+
+                        foreach (var r in respMsgs)
+                        {
+                            var texts = r.Text?.Text_;
+                            if (texts is { Count: > 0 })
+                            {
+                                var text = string.Join("\n", texts);
+                                _logger.LogDebug("→ SSE ACK: {text}", PiiRedactor.Safe(text));
+                                await _sse.EmitAck(sessionId.ToString(), turnId, text, new { source = "cx" });
+                            }
+                        }
 
                         await _sessions.AddEventAsync(sessionId, type: "CxDetect", result: "ok", dataJson: null, ct: ct);
 
@@ -165,8 +178,8 @@ namespace BotApp.Controllers
                             mode = "message",
                             channel = "web",
                             sessionId,
-                            cxSessionPath = session.CxSessionPath,
-                            botReply = firstText
+                            turnId,
+                            cxSessionPath = session.CxSessionPath
                         });
                     }
                     else

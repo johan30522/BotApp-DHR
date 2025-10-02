@@ -60,7 +60,8 @@ builder.Services.AddSingleton<IGeminiService, GeminiService>();
 builder.Services.AddScoped<IQueryRewriteService, QueryRewriteService>();
 builder.Services.AddScoped<IConversationRagService, ConversationRagService>();
 
-
+// SSE emitter
+builder.Services.AddSingleton<ISseEmitter, RedisSseEmitter>();
 
 builder.Services.AddSingleton<PredictionServiceClient>(sp=>
 {
@@ -77,6 +78,7 @@ builder.Services.AddScoped<CxApiKeyFilter>();
 builder.Services.AddControllers().AddJsonOptions(o =>
 {
     o.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
+    o.JsonSerializerOptions.PropertyNameCaseInsensitive = true;
 });
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
@@ -151,7 +153,12 @@ builder.Services.AddSingleton(_ =>
     }.Build()
 );
 
-
+// Kestrel: no comprimir event-stream, timeouts razonables
+builder.WebHost.ConfigureKestrel(opt =>
+{
+    opt.AddServerHeader = false;
+    // Opcional: opt.Limits.KeepAliveTimeout = TimeSpan.FromMinutes(5);
+});
 
 var app = builder.Build();
 
