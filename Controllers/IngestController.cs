@@ -12,6 +12,9 @@ using Microsoft.Extensions.Logging;
 using System.Security.Claims;
 using System.Text.Json;
 
+using Google.Protobuf;
+using Google.Protobuf.WellKnownTypes;
+
 namespace BotApp.Controllers
 {
     [Route("ingest")]
@@ -141,6 +144,48 @@ namespace BotApp.Controllers
                                 cxParams,
                                 ct
                             );
+                            _logger.LogDebug("📋 CX intent: {intent} - page: {page}",
+                               cxResp.QueryResult.Match?.Intent?.DisplayName,
+                               cxResp.QueryResult.CurrentPage?.DisplayName);
+
+                            foreach (var r in cxResp.QueryResult.ResponseMessages)
+                            {
+                                var texts = r.Text?.Text_;
+                                if (texts is { Count: > 0 })
+                                    _logger.LogDebug("💬 Mensaje CX: {text}", string.Join(" | ", texts));
+                            }
+
+                            if (cxResp.QueryResult.DiagnosticInfo != null)
+                            {
+                                var diag = cxResp.QueryResult.DiagnosticInfo;
+
+                                if (diag.Fields.TryGetValue("parameterInfo", out var paramInfoField))
+                                {
+                                    _logger.LogDebug("📦 parameterInfo crudo: {0}", paramInfoField.ToString());
+
+                                    foreach (var param in paramInfoField.StructValue.Fields)
+                                    {
+                                        var paramName = param.Key;
+                                        var paramDetails = param.Value.StructValue;
+
+                                        var required = paramDetails.Fields.ContainsKey("required") && paramDetails.Fields["required"].BoolValue;
+                                        var state = paramDetails.Fields.ContainsKey("state") ? paramDetails.Fields["state"].StringValue : "UNKNOWN";
+                                        var justCollected = paramDetails.Fields.ContainsKey("justCollected") && paramDetails.Fields["justCollected"].BoolValue;
+
+                                        _logger.LogDebug("🧩 Parametro: {0} | requerido: {1} | estado: {2} | justo recolectado: {3}",
+                                            paramName, required, state, justCollected);
+                                    }
+                                }
+                                else
+                                {
+                                    _logger.LogDebug("⚠️ parameterInfo no presente en DiagnosticInfo.");
+                                }
+                            }
+                            else
+                            {
+                                _logger.LogDebug("⚠️ No hay DiagnosticInfo disponible.");
+                            }
+
                         }
                         catch (Exception ex)
                         {
@@ -154,11 +199,13 @@ namespace BotApp.Controllers
                             sw.Stop();
                             _logger.LogDebug("CX Detect tomó {ms} ms", sw.ElapsedMilliseconds);
                         }
-
+                        //_logger.LogDebug("← CX Detect: query='{query}', intent='{intent}', page='{page}'",
+                        //    cxResp.QueryResult?.Text,
+                        //    cxResp.QueryResult?.CurrentPage?.DisplayName);
                         // 3) Por cada mensaje de CX (pre-webhook), emitir ACK por SSE
                         var respMsgs = cxResp.QueryResult?.ResponseMessages ?? new Google.Protobuf.Collections.RepeatedField<Google.Cloud.Dialogflow.Cx.V3.ResponseMessage>();
 
-
+                        _logger.LogDebug("CX Detect retornó {count} mensajes de respuesta", respMsgs.Count);
                         foreach (var r in respMsgs)
                         {
                             var texts = r.Text?.Text_;
@@ -169,6 +216,8 @@ namespace BotApp.Controllers
                                 await _sse.EmitAck(sessionId.ToString(), turnId, text, new { source = "cx" });
                             }
                         }
+                        _logger.LogDebug("Todos los ACK emitidos.");
+
 
                         await _sessions.AddEventAsync(sessionId, type: "CxDetect", result: "ok", dataJson: null, ct: ct);
 

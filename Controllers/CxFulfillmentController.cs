@@ -103,6 +103,18 @@ namespace BotApp.Controllers
                     };
                     AcceptAndRun(sp => RunQnAAsync(sp, p, sessionId, turnId, ct));
                     break;
+                case "EnviarCodigoExpediente":
+                    AcceptAndRun(sp => EnvioCodigoAsync(sp, p, sessionId, turnId, ct));
+                    break;
+
+                case "ValidarCodigoExpediente":
+                    resets = new()
+                    {
+                        ["numeroExpediente"] = null,
+                        ["codigoVerificacion"] = null
+                    };
+                    AcceptAndRun(sp => ValidacionCodigoAsync(sp, p, sessionId, turnId, ct));
+                    break;
 
                 default:
                     // Si llega algo no esperado, notificamos error por SSE y seguimos.
@@ -213,7 +225,7 @@ namespace BotApp.Controllers
         }
 
         private async Task RunQnAAsync(IServiceProvider sp, IDictionary<string, object> p,
-    Guid sessionId, string turnId, CancellationToken ct)
+                Guid sessionId, string turnId, CancellationToken ct)
         {
             try
             {
@@ -245,6 +257,78 @@ namespace BotApp.Controllers
             {
                 await _sse.EmitError(sessionId.ToString(), turnId, "RAG_ERROR", "Tuvimos un inconveniente al consultar la información. Por favor, inténtelo de nuevo.", false);
                 _logger.LogError(ex, "Error en QnA");
+                await _sse.EmitDone(sessionId.ToString(), turnId);
+            }
+        }
+        private async Task ValidacionCodigoAsync(
+            IServiceProvider sp,
+            IDictionary<string, object> p,
+            Guid sessionId,
+            string turnId,
+            CancellationToken ct
+        )
+        {
+            try
+            {
+                var numero = p.GetValueOrDefault("numeroExpediente")?.ToString();
+                var codigo = p.GetValueOrDefault("codigoVerificacion")?.ToString();
+
+                _logger.LogDebug($"Validando código {codigo} para expediente {numero}");
+
+
+                await _sse.EmitProgress(sessionId.ToString(), turnId, $"🕐 Validando Código…");
+
+                await Task.Delay(500);
+
+                if (codigo == "123456")
+                {
+                    await _sse.EmitFinal(sessionId.ToString(), turnId,
+                        $"✅ Código correcto. El expediente {numero} está en estado: FINAL.",
+                        new { numero, estado = "FINAL", codigoValido = true });
+                }
+                else
+                {
+                    await _sse.EmitFinal(sessionId.ToString(), turnId,
+                        $"❌ El código ingresado es inválido o ha expirado. Por favor, iniciá de nuevo la consulta.",
+                        new { codigoValido = false });
+                }
+
+                await _sse.EmitDone(sessionId.ToString(), turnId);
+            }
+            catch (Exception ex)
+            {
+                await _sse.EmitError(sessionId.ToString(), turnId, "VALIDACION_ERROR", ex.Message, false);
+                await _sse.EmitDone(sessionId.ToString(), turnId);
+            }
+        }
+        private async Task EnvioCodigoAsync(
+            IServiceProvider sp,
+            IDictionary<string, object> p,
+            Guid sessionId,
+            string turnId,
+            CancellationToken ct
+        )
+        {
+            try
+            {
+                var numero = p.GetValueOrDefault("numeroExpediente")?.ToString();
+
+                _logger.LogDebug($"Enviando código para expediente {numero}");
+
+                await _sse.EmitProgress(sessionId.ToString(), turnId, $"📩 Enviando código…");
+
+                // Espera ficticia
+                await Task.Delay(500);
+
+                await _sse.EmitFinal(sessionId.ToString(), turnId,
+                    $"✉️ Código enviado al correo registrado para el expediente {numero}. Ingresalo para continuar.",
+                    new { numero });
+
+                await _sse.EmitDone(sessionId.ToString(), turnId);
+            }
+            catch (Exception ex)
+            {
+                await _sse.EmitError(sessionId.ToString(), turnId, "ENVIO_ERROR", ex.Message, false);
                 await _sse.EmitDone(sessionId.ToString(), turnId);
             }
         }
