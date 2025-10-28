@@ -1,10 +1,11 @@
-﻿using BotApp.Filters;
+﻿using BotApp.Extensions;
+using BotApp.Filters;
+using BotApp.Models;
 using BotApp.Services;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.DependencyInjection;
 using System.Text.Json;
 using static BotApp.DTO.Fulfillment.Fulfillment;
-using BotApp.Extensions;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace BotApp.Controllers
 {
@@ -21,6 +22,11 @@ namespace BotApp.Controllers
         private readonly ISseEmitter _sse;             // ← NUEVO
         private readonly ILogger<CxFulfillmentController> _logger; // opcional, pero útil
         private readonly IServiceScopeFactory _scopeFactory;
+        private readonly IEmailService _emailService;
+        private readonly CodigoVerificacionService _codigoVerificacionService;
+
+        private string startPage;
+
 
         public CxFulfillmentController(
            IConfiguration cfg,
@@ -29,7 +35,9 @@ namespace BotApp.Controllers
            GeminiRagService rag,
            SessionStateStore state,
            IConversationRagService convRag,
-           ISseEmitter sse,                              // ← NUEVO
+           ISseEmitter sse,
+           IEmailService emailService,
+           CodigoVerificacionService codigoVerificacionService,
            ILogger<CxFulfillmentController> logger,
            IServiceScopeFactory scopeFactory)      // ← opcional
         {
@@ -40,13 +48,16 @@ namespace BotApp.Controllers
             _state = state;
             _convRag = convRag;
             _sse = sse;
+            _emailService = emailService;
+            _codigoVerificacionService = codigoVerificacionService;
             _logger = logger;
             _scopeFactory = scopeFactory;
+            startPage = GetPagePath(_cfg["Cx:StartPageId"] ?? "START_PAGE");
         }
 
         [HttpPost]
         [ServiceFilter(typeof(CxApiKeyFilter))]
-        public IActionResult Post([FromBody] FulfillmentRequest body, CancellationToken ct)
+        public async Task<IActionResult> Post([FromBody] FulfillmentRequest body, CancellationToken ct)
         {
             _logger.LogDebug("######Inicia webhook segun accion #####");
             var expected = _cfg["Cx:WebhookApiKey"];
@@ -104,7 +115,11 @@ namespace BotApp.Controllers
                     AcceptAndRun(sp => RunQnAAsync(sp, p, sessionId, turnId, ct));
                     break;
                 case "EnviarCodigoExpediente":
-                    AcceptAndRun(sp => EnvioCodigoAsync(sp, p, sessionId, turnId, ct));
+                    //AcceptAndRun(sp => EnvioCodigoAsync(sp, p, sessionId, turnId, ct));
+                    var result = await EnvioCodigoAsyncScoped(p, sessionId, turnId, ct);
+                    _logger.LogDebug("Resultado EnvioCodigoExpediente: {ResultJson}", JsonSerializer.Serialize(result));
+
+                    return Ok(result);
                     break;
 
                 case "ValidarCodigoExpediente":
@@ -114,6 +129,10 @@ namespace BotApp.Controllers
                         ["codigoVerificacion"] = null
                     };
                     AcceptAndRun(sp => ValidacionCodigoAsync(sp, p, sessionId, turnId, ct));
+                    break;
+
+                case "ValidateParam":
+                    return Ok(ValidateParam(body));
                     break;
 
                 default:
@@ -273,25 +292,38 @@ namespace BotApp.Controllers
                 var numero = p.GetValueOrDefault("numeroExpediente")?.ToString();
                 var codigo = p.GetValueOrDefault("codigoVerificacion")?.ToString();
 
+                if (string.IsNullOrWhiteSpace(numero) || string.IsNullOrWhiteSpace(codigo))
+                {
+                    await _sse.EmitError(sessionId.ToString(), turnId, "MISSING_PARAM",
+                        "Faltan parámetros requeridos (número de expediente o código).", true);
+                    await _sse.EmitDone(sessionId.ToString(), turnId);
+                    return;
+                }
+                var codigoSvc = sp.GetRequiredService<CodigoVerificacionService>();
+                var expedientes = sp.GetRequiredService<ExpedientesService>();
+
+
                 _logger.LogDebug($"Validando código {codigo} para expediente {numero}");
 
-
-                await _sse.EmitProgress(sessionId.ToString(), turnId, $"🕐 Validando Código…");
-
-                await Task.Delay(500);
-
-                if (codigo == "123456")
-                {
-                    await _sse.EmitFinal(sessionId.ToString(), turnId,
-                        $"✅ Código correcto. El expediente {numero} está en estado: FINAL.",
-                        new { numero, estado = "FINAL", codigoValido = true });
-                }
-                else
+                var esValido = await codigoSvc.ValidarAsync(numero!, codigo!);
+                if (!esValido)
                 {
                     await _sse.EmitFinal(sessionId.ToString(), turnId,
                         $"❌ El código ingresado es inválido o ha expirado. Por favor, iniciá de nuevo la consulta.",
                         new { codigoValido = false });
+                    await _sse.EmitDone(sessionId.ToString(), turnId);
+                    return;
                 }
+
+                _logger.LogDebug("Código válido");
+
+                // Código correcto → traer expediente
+                var expediente = await expedientes.GetByNumeroAsync(numero!, ct);
+                var estado = expediente?.Estado ?? "Desconocido";
+
+                await _sse.EmitFinal(sessionId.ToString(), turnId,
+                    $"✅ Código correcto. El expediente {numero} está en estado: {estado}.",
+                    new { numero, estado, codigoValido = true });
 
                 await _sse.EmitDone(sessionId.ToString(), turnId);
             }
@@ -301,7 +333,16 @@ namespace BotApp.Controllers
                 await _sse.EmitDone(sessionId.ToString(), turnId);
             }
         }
-        private async Task EnvioCodigoAsync(
+        private async Task<object> EnvioCodigoAsyncScoped(
+            IDictionary<string, object> p,
+            Guid sessionId,
+            string turnId,
+            CancellationToken ct)
+        {
+            using var scope = _scopeFactory.CreateScope();
+            return await EnvioCodigoAsync(scope.ServiceProvider, p, sessionId, turnId, ct);
+        }
+        private async Task<object> EnvioCodigoAsync(
             IServiceProvider sp,
             IDictionary<string, object> p,
             Guid sessionId,
@@ -312,27 +353,215 @@ namespace BotApp.Controllers
             try
             {
                 var numero = p.GetValueOrDefault("numeroExpediente")?.ToString();
+                if (string.IsNullOrWhiteSpace(numero))
+                {
+                    await _sse.EmitFinal(sessionId.ToString(), turnId,
+                       "❌ Faltan datos requeridos. Iniciá nuevamente la consulta.",
+                       new { codigoValido = false });
+                    await _sse.EmitDone(sessionId.ToString(), turnId);
 
+                    return new
+                    {
+                        targetPage = startPage,
+                        sessionInfo = new
+                        {
+                            parameters = new { codigoValido = false }
+                        },
+                        fulfillmentResponse = new
+                        {
+                            messages = Array.Empty<object>()
+                        }
+                    };
+                }
+
+                var expedientes = sp.GetRequiredService<ExpedientesService>();
+                var emailService = sp.GetRequiredService<IEmailService>();
+                var codigoSvc = sp.GetRequiredService<CodigoVerificacionService>();
+                _logger.LogDebug($"Iniciando envío de código para expediente {numero}");
+
+                // 1️⃣ Validar que el expediente exista
+                var expediente = await expedientes.GetByNumeroAsync(numero!, ct);
+                if (expediente == null)
+                {
+                    _logger.LogDebug($"No se encontró el expediente {numero}");
+                    await _sse.EmitFinal(sessionId.ToString(), turnId,
+                        $"❌ No se encontró el expediente {numero}. Iniciá nuevamente la consulta.",
+                        new { codigoValido = false });
+                    await _sse.EmitDone(sessionId.ToString(), turnId);
+
+                    return new
+                    {
+                        targetPage = startPage,
+                        sessionInfo = new
+                        {
+                            parameters = new { codigoValido = false }
+                        },
+                        fulfillmentResponse = new
+                        {
+                            messages = Array.Empty<object>()
+                        }
+                    };
+                }
+
+                if (string.IsNullOrWhiteSpace(expediente.Email))
+                {
+                    await _sse.EmitFinal(sessionId.ToString(), turnId,
+                        $"❌ El expediente {numero} no tiene correo electrónico registrado.",
+                        new { codigoValido = false });
+                    await _sse.EmitDone(sessionId.ToString(), turnId);
+
+                    return new
+                    {
+                        targetPage = startPage,
+                        sessionInfo = new
+                        {
+                            parameters = new { codigoValido = false }
+                        },
+                        fulfillmentResponse = new
+                        {
+                            messages = Array.Empty<object>()
+                        }
+                    };
+                }
+                // Generar código y enviarlo por email
                 _logger.LogDebug($"Enviando código para expediente {numero}");
+                _logger.LogDebug($"Correo registrado: {expediente.Email}");
 
+                // Generar código y guardarlo con TTL
+                var codigo = await codigoSvc.GenerarAsync(numero!);
+
+                _logger.LogDebug($"Código generado: {codigo}");
+
+                // 3️⃣ Armar el correo
+                var subject = $"Código de verificación para expediente {numero}";
+                var body = $@"
+                        <p>Estimado/a usuario/a,</p>
+                        <p>Su código de verificación para el expediente <b>{numero}</b> es:</p>
+                        <h2 style='color:#0078D4;'>{codigo}</h2>
+                        <p>Este código expirará en 10 minutos.</p>
+                        <p>Atentamente,<br>Defensoría de los Habitantes</p>";
+
+                // 4️⃣ Enviar el correo
                 await _sse.EmitProgress(sessionId.ToString(), turnId, $"📩 Enviando código…");
+                await emailService.SendEmailAsync(expediente.Email, subject, body, true);
 
                 // Espera ficticia
-                await Task.Delay(500);
+                //await Task.Delay(500);
 
                 await _sse.EmitFinal(sessionId.ToString(), turnId,
                     $"✉️ Código enviado al correo registrado para el expediente {numero}. Ingresalo para continuar.",
                     new { numero });
 
                 await _sse.EmitDone(sessionId.ToString(), turnId);
+                return new
+                {
+                    fulfillmentResponse = new { messages = Array.Empty<object>() },
+                    sessionInfo = new { parameters = new { codigoValido = true, numeroExpediente = numero } }
+                };
             }
             catch (Exception ex)
             {
-                await _sse.EmitError(sessionId.ToString(), turnId, "ENVIO_ERROR", ex.Message, false);
-                await _sse.EmitDone(sessionId.ToString(), turnId);
+                return new
+                {
+                    targetPage = startPage,
+                    sessionInfo = new
+                    {
+                        parameters = new { codigoValido = false }
+                    },
+                    fulfillmentResponse = new
+                    {
+                        messages = Array.Empty<object>()
+                    }
+                };
             }
         }
 
+        private object ValidateParam(FulfillmentRequest body)
+        {
+            _logger.LogDebug("Ejecutando ValidateParam...");
+
+            var cancelWords = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                "cancelar","cancela","cancelá","cancele",
+                "detén","detener","parar","stop",
+                "olvídalo","olvidalo","mejor no","no seguir","no quiero seguir"
+            };
+
+            var pinfo = body?.pageInfo?.formInfo?.parameterInfo ?? new List<ParameterInfo>();
+            if (pinfo.Count == 0)
+                return new { };
+
+            var active =
+                pinfo.FirstOrDefault(p => p.justCollected == true) ??
+                pinfo.FirstOrDefault(p => string.Equals(p.state, "EMPTY", StringComparison.OrdinalIgnoreCase));
+
+            if (active == null || string.IsNullOrWhiteSpace(active.displayName))
+                return new { };
+
+            string? candidate = null;
+            if (body.sessionInfo?.parameters != null &&
+                body.sessionInfo.parameters.TryGetValue(active.displayName, out var raw))
+                candidate = raw?.ToString()?.Trim();
+
+            if (string.IsNullOrWhiteSpace(candidate) && active.value != null)
+                candidate = active.value.ToString().Trim();
+
+            if (string.IsNullOrWhiteSpace(candidate) && !string.IsNullOrWhiteSpace(body.text))
+                candidate = body.text.Trim();
+
+            var sessionId = body.sessionInfo?.parameters?.GetValueOrDefault("sessionId")?.ToString() ?? Guid.NewGuid().ToString();
+            var turnId = Guid.NewGuid().ToString();
+
+            // 🚨 Detección de cancelación
+            if (!string.IsNullOrEmpty(candidate) && cancelWords.Contains(candidate))
+            {
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await _sse.EmitFinal(sessionId, turnId,
+                            "🚫 Se canceló la creación de la denuncia.",
+                            new { cancelled = true, parameter = active.displayName });
+                        await _sse.EmitDone(sessionId, turnId);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Error enviando SSE de cancelación");
+                    }
+                });
+
+                var clear = new Dictionary<string, object>
+                {
+                    ["nombreDenunciante"] = null,
+                    ["cedula"] = null,
+                    ["ubicacion"] = null,
+                    ["descripcion"] = null,
+                    ["cancel"] = true
+                };
+
+                return new
+                {
+                    sessionInfo = new { parameters = clear },
+                    fulfillmentResponse = new
+                    {
+                        mergeBehavior = "REPLACE",
+                        messages = new object[]
+                        {
+                    new { text = new { text = new[] { "Cancelé la creación de tu denuncia. Si querés, podemos empezar de nuevo o hacer otra consulta." } } }
+                        }
+                    },
+                    targetPage = startPage
+                };
+            }
+
+            return new { };
+        }
+        private string GetPagePath(string pageId)
+        {
+            var agentPath = _cfg["Cx:AgentPath"];
+            var flowId = _cfg["Cx:DefaultFlowId"];
+            return $"{agentPath}/flows/{flowId}/pages/{pageId}";
+        }
         private static IDictionary<string, object> ParamsInsensitive(FulfillmentRequest body)
         {
             return new Dictionary<string, object>(

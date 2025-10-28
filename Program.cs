@@ -1,11 +1,11 @@
 using BotApp.Data;
 using BotApp.Filters;
+using BotApp.Models;
 using BotApp.Services;
 using Google.Apis.Auth.OAuth2;
 using Google.Apis.Auth.OAuth2;
 using Google.Cloud.AIPlatform.V1;
 using Google.Cloud.Dialogflow.Cx.V3;
-using DE = Google.Cloud.DiscoveryEngine.V1;
 using Grpc.Auth;
 using Grpc.Auth;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -14,6 +14,7 @@ using Microsoft.EntityFrameworkCore.Metadata.Internal;
 using Microsoft.IdentityModel.Tokens;
 using StackExchange.Redis;
 using System.Text;
+using DE = Google.Cloud.DiscoveryEngine.V1;
 
 
 var builder = WebApplication.CreateBuilder(args);
@@ -41,6 +42,10 @@ builder.Services.AddSingleton<IConnectionMultiplexer>(_ => ConnectionMultiplexer
 // Cliente de estado de Redis
 builder.Services.AddSingleton<SessionStateStore>();
 
+//Se agrega la consfiguracion del smtp desde appsettings
+builder.Services.Configure<EmailSettings>(builder.Configuration.GetSection("EmailSettings"));
+builder.Services.AddScoped<IEmailService, EmailService>();
+
 // se registra Cliente de Cx
 builder.Services.AddSingleton<CxDetectService>();
 
@@ -59,6 +64,7 @@ builder.Services.AddSingleton<ISearchService, SearchService>();
 builder.Services.AddSingleton<IGeminiService, GeminiService>();
 builder.Services.AddScoped<IQueryRewriteService, QueryRewriteService>();
 builder.Services.AddScoped<IConversationRagService, ConversationRagService>();
+builder.Services.AddScoped<CodigoVerificacionService>();
 
 // SSE emitter
 builder.Services.AddSingleton<ISseEmitter, RedisSseEmitter>();

@@ -259,7 +259,8 @@ namespace BotApp.Controllers
                             channel = "web",
                             sessionId = session.Id,
                             token,
-                            warmup = "¡Hola! Gracias por comunicarte con la Defensoría de los Habitantes.\nEstoy aquí para acompañarle en lo que necesite:\n\n📂 Consultar su expediente\n📝 Presentar una denuncia\nℹ️ Obtener información sobre nuestros servicios\n\n¿Qué desea hacer hoy?"
+                            warmup = ""
+                            //warmup = "¡Hola! Gracias por comunicarte con la Defensoría de los Habitantes.\nEstoy aquí para acompañarle en lo que necesite:\n\n📂 Consultar su expediente\n📝 Presentar una denuncia\nℹ️ Obtener información sobre nuestros servicios\n\n¿Qué desea hacer hoy?"
                         });
                     }
                 }

@@ -35,6 +35,7 @@ namespace BotApp.Services
             {
                 Numero = e.Numero,
                 Estado = e.Estado,
+                Email = e.Email,
                 Resumen = resumen,
                 LastModifiedUtc = e.LastModifiedUtc
             };
