@@ -10,9 +10,9 @@ namespace BotApp.Services
 {
     public interface IEmailService
     {
-        Task SendEmailAsync(string to, string subject, string body, bool isHtml = false, string cc = null, string bcc = null);
-        Task SendEmailWithAttachmentAsync(string to, string subject, string body, byte[] attachment, string attachmentName, bool isHtml = false, string cc = null, string bcc = null);
-        Task SendEmailFromTemplateAsync(string to, string subject, string htmlContent, string cc = null, string bcc = null);
+        Task SendEmailAsync(string to, string subject, string body, bool isHtml = false, string cc = null!, string bcc = null!);
+        Task SendEmailWithAttachmentAsync(string to, string subject, string body, byte[] attachment, string attachmentName, bool isHtml = false, string cc = null!, string bcc = null!);
+        Task SendEmailFromTemplateAsync(string to, string subject, string htmlContent, string cc = null!, string bcc = null!);
         void ValidateEmailSettings();
     }
     public class EmailService : IEmailService
@@ -26,7 +26,7 @@ namespace BotApp.Services
             _logger = logger;
         }
 
-        public async Task SendEmailAsync(string to, string subject, string body, bool isHtml = false, string cc = null, string bcc = null)
+        public async Task SendEmailAsync(string to, string subject, string body, bool isHtml = false, string cc = null!, string bcc = null!)
         {
             ValidateEmailSettings();
 
@@ -79,7 +79,7 @@ namespace BotApp.Services
             string to,
             string subject,
             string body,
-            byte[]? attachment = null,
+            byte[]? attachment = null!,
             string? attachmentName = null,
             bool isHtml = false,
             string? cc = null,
@@ -102,8 +102,8 @@ namespace BotApp.Services
             };
 
             AddEmailAddresses(to, mailMessage.To);
-            AddEmailAddresses(cc, mailMessage.CC);
-            AddEmailAddresses(bcc, mailMessage.Bcc);
+            AddEmailAddresses(cc!, mailMessage.CC);
+            AddEmailAddresses(bcc!, mailMessage.Bcc);
 
             // Manejo opcional de adjuntos
             if (attachment != null && attachment.Length > 0)
@@ -158,7 +158,7 @@ namespace BotApp.Services
             }
         }
 
-        public async Task SendEmailFromTemplateAsync(string to, string subject, string htmlContent, string cc = null, string bcc = null)
+        public async Task SendEmailFromTemplateAsync(string to, string subject, string htmlContent, string cc = null!, string bcc = null!)
         {
             await SendEmailAsync(to, subject, htmlContent, true, cc, bcc);
         }

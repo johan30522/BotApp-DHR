@@ -2,18 +2,19 @@
 using StackExchange.Redis;
 using BotApp.Contracts;
 
-public interface ISseEmitter
-{
-    Task EmitAck(string sessionId, string turnId, string text, object? meta = null);
-    Task EmitProgress(string sessionId, string turnId, string textOrDelta, object? meta = null);
-    Task EmitFinal(string sessionId, string turnId, string text, object? meta = null);
-    Task EmitTool(string sessionId, string turnId, string tool, string status, object? progress = null);
-    Task EmitDone(string sessionId, string turnId);
-    Task EmitError(string sessionId, string turnId, string code, string message, bool retryable);
-}
+
 
 namespace BotApp.Services
 {
+    public interface ISseEmitter
+    {
+        Task EmitAck(string sessionId, string turnId, string text, object? meta = null);
+        Task EmitProgress(string sessionId, string turnId, string textOrDelta, object? meta = null);
+        Task EmitFinal(string sessionId, string turnId, string text, object? meta = null);
+        Task EmitTool(string sessionId, string turnId, string tool, string status, object? progress = null);
+        Task EmitDone(string sessionId, string turnId);
+        Task EmitError(string sessionId, string turnId, string code, string message, bool retryable);
+    }
     public sealed class RedisSseEmitter : ISseEmitter
     {
         private readonly IConnectionMultiplexer _redis;

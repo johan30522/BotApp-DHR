@@ -1,9 +1,7 @@
 ﻿using BotApp.Extensions;
 using BotApp.Filters;
-using BotApp.Models;
 using BotApp.Services;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.DependencyInjection;
 using System.Text.Json;
 using static BotApp.DTO.Fulfillment.Fulfillment;
 
@@ -14,42 +12,20 @@ namespace BotApp.Controllers
     public class CxFulfillmentController : ControllerBase
     {
         private readonly IConfiguration _cfg;
-        private readonly DenunciasService _denuncias;
-        private readonly ExpedientesService _expedientes;
-        private readonly GeminiRagService _rag;
-        private readonly SessionStateStore _state;
-        private readonly IConversationRagService _convRag;
-        private readonly ISseEmitter _sse;             // ← NUEVO
-        private readonly ILogger<CxFulfillmentController> _logger; // opcional, pero útil
+        private readonly ISseEmitter _sse;
+        private readonly ILogger<CxFulfillmentController> _logger;
         private readonly IServiceScopeFactory _scopeFactory;
-        private readonly IEmailService _emailService;
-        private readonly CodigoVerificacionService _codigoVerificacionService;
-
-        private string startPage;
+        private readonly string startPage;
 
 
         public CxFulfillmentController(
            IConfiguration cfg,
-           DenunciasService denuncias,
-           ExpedientesService expedientes,
-           GeminiRagService rag,
-           SessionStateStore state,
-           IConversationRagService convRag,
            ISseEmitter sse,
-           IEmailService emailService,
-           CodigoVerificacionService codigoVerificacionService,
            ILogger<CxFulfillmentController> logger,
            IServiceScopeFactory scopeFactory)      // ← opcional
         {
             _cfg = cfg;
-            _denuncias = denuncias;
-            _expedientes = expedientes;
-            _rag = rag;
-            _state = state;
-            _convRag = convRag;
             _sse = sse;
-            _emailService = emailService;
-            _codigoVerificacionService = codigoVerificacionService;
             _logger = logger;
             _scopeFactory = scopeFactory;
             startPage = GetPagePath(_cfg["Cx:StartPageId"] ?? "START_PAGE");
@@ -115,12 +91,10 @@ namespace BotApp.Controllers
                     AcceptAndRun(sp => RunQnAAsync(sp, p, sessionId, turnId, ct));
                     break;
                 case "EnviarCodigoExpediente":
-                    //AcceptAndRun(sp => EnvioCodigoAsync(sp, p, sessionId, turnId, ct));
                     var result = await EnvioCodigoAsyncScoped(p, sessionId, turnId, ct);
                     _logger.LogDebug("Resultado EnvioCodigoExpediente: {ResultJson}", JsonSerializer.Serialize(result));
 
                     return Ok(result);
-                    break;
 
                 case "ValidarCodigoExpediente":
                     resets = new()
@@ -133,7 +107,7 @@ namespace BotApp.Controllers
 
                 case "ValidateParam":
                     return Ok(ValidateParam(body));
-                    break;
+
 
                 default:
                     // Si llega algo no esperado, notificamos error por SSE y seguimos.
@@ -180,7 +154,7 @@ namespace BotApp.Controllers
                 catch (OperationCanceledException) { /* ignore */ }
                 catch (Exception ex)
                 {
-                    try { _logger.LogError(ex, "Error en AcceptAndRun"); } catch { }
+                    _logger.LogError(ex, "Error en AcceptAndRun");
                 }
             });
         }
@@ -192,7 +166,12 @@ namespace BotApp.Controllers
             {
                 var denuncias = sp.GetRequiredService<DenunciasService>();   // ← RESUELTO EN SCOPE NUEVO
 
-                if (string.IsNullOrWhiteSpace(userId)) userId = "user-123";
+                if (string.IsNullOrWhiteSpace(userId))
+                {
+                    await _sse.EmitError(sessionId.ToString(), turnId, "MISSING_USER_ID", "Falta el ID de usuario.", true);
+                    await _sse.EmitDone(sessionId.ToString(), turnId);
+                    return;
+                }
 
                 var dto = new DTO.Denuncias.CreateDenunciaDto
                 {
@@ -445,8 +424,6 @@ namespace BotApp.Controllers
                 await _sse.EmitProgress(sessionId.ToString(), turnId, $"📩 Enviando código…");
                 await emailService.SendEmailAsync(expediente.Email, subject, body, true);
 
-                // Espera ficticia
-                //await Task.Delay(500);
 
                 await _sse.EmitFinal(sessionId.ToString(), turnId,
                     $"✉️ Código enviado al correo registrado para el expediente {numero}. Ingresalo para continuar.",
@@ -491,9 +468,8 @@ namespace BotApp.Controllers
             if (pinfo.Count == 0)
                 return new { };
 
-            var active =
-                pinfo.FirstOrDefault(p => p.justCollected == true) ??
-                pinfo.FirstOrDefault(p => string.Equals(p.state, "EMPTY", StringComparison.OrdinalIgnoreCase));
+            var active =pinfo.Find(p => p.justCollected == true) ??
+                pinfo.Find(p => string.Equals(p.state, "EMPTY", StringComparison.OrdinalIgnoreCase));
 
             if (active == null || string.IsNullOrWhiteSpace(active.displayName))
                 return new { };
