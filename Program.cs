@@ -30,7 +30,7 @@ if (!string.IsNullOrWhiteSpace(dbPwd) && !cs.Contains("Password=", StringCompari
     cs += $"Password={dbPwd};";
 }
 
-// asegura SSL Mode (mantengo Disable como tenías)
+// asegura SSL Mode (mantengo Disable )
 if (!cs.Contains("SSL Mode", StringComparison.OrdinalIgnoreCase))
 {
     if (!cs.EndsWith(';')) cs += ';';
