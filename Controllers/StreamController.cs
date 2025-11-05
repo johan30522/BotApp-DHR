@@ -24,9 +24,8 @@ namespace BotApp.Controllers
         [HttpGet]
         public async Task<IActionResult> Get([FromQuery] Guid sessionId, [FromQuery(Name = "access_token")] string? jwt = null)
         {
-            // MINI-VALIDACIÓN: valida el JWT 
+            // 1) MINI-VALIDACIÓN JWT (igual que antes)
             if (string.IsNullOrWhiteSpace(jwt)) return Unauthorized();
-
             try
             {
                 var principal = JwtSecurityTokenHelper.Validate(jwt, _cfg, out _);
@@ -38,16 +37,25 @@ namespace BotApp.Controllers
             {
                 return Unauthorized();
             }
-            // En dev podrías permitir vacío, en prod exigirlo.
+
+            // 2) HEADERS SSE (igual + ajustes para proxies / buffering)
             HttpContext.Response.Headers.Append("Content-Type", "text/event-stream");
             HttpContext.Response.Headers.Append("Cache-Control", "no-cache");
-            HttpContext.Response.Headers.Append("X-Accel-Buffering", "no"); // Nginx
+            HttpContext.Response.Headers.Append("X-Accel-Buffering", "no"); // Evita buffering en Nginx/proxies
             HttpContext.Response.Headers.Append("Connection", "keep-alive");
+
+            // (nuevo) Desactiva buffering y envía preámbulo estándar SSE:
+            HttpContext.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpResponseBodyFeature>()
+                ?.DisableBuffering();
+
+            // Sugerencia de reconexión para el EventSource del navegador (no dispara handlers)
+            await Response.WriteAsync("retry: 15000\n:open\n\n");
+            await Response.Body.FlushAsync();
 
             var sub = _redis.GetSubscriber();
             var chan = new RedisChannel($"{_channelPrefix}{sessionId}", RedisChannel.PatternMode.Literal);
 
-            // Pequeño helper para escribir eventos SSE
+            // Helper de eventos (igual que el tuyo)
             async Task Send(string evtName, string json)
             {
                 var sb = new StringBuilder();
@@ -57,13 +65,11 @@ namespace BotApp.Controllers
                 await HttpContext.Response.Body.FlushAsync();
             }
 
-            // Notifica que el stream está listo
+            // 3) READY inicial (igual que antes)
             await Send("ready", "{\"ok\":true}");
 
+            // 4) Snapshot del último turno (igual que antes)
             var db = _redis.GetDatabase();
-            var pattern = $"sse:last:{sessionId}:*"; // si quieres el último de cualquier turnId
-
-            // opción simple: si guardas también "el último turnId" por sesión
             var lastTurnKey = $"sse:last:{sessionId}:turn";
             var lastTurnId = await db.StringGetAsync(lastTurnKey);
             if (!lastTurnId.IsNullOrEmpty)
@@ -79,13 +85,12 @@ namespace BotApp.Controllers
                 }
             }
 
-            // Suscripción a Redis Pub/Sub
+            // 5) Suscripción a Redis Pub/Sub (igual que antes)
             await sub.SubscribeAsync(chan, async (c, msg) =>
             {
                 try
                 {
                     var json = (string)msg!;
-                    // Podrías inspeccionar el "type" para usarlo como nombre de evento
                     using var doc = JsonDocument.Parse(json);
                     var type = doc.RootElement.GetProperty("type").GetString() ?? "message";
                     await Send(type, json);
@@ -96,12 +101,29 @@ namespace BotApp.Controllers
                 }
             });
 
-            // Mantener la conexión abierta hasta que el cliente se desconecte
-            // Aquí simplemente "duerme" y verifica si el cliente cerró.
-            while (!HttpContext.RequestAborted.IsCancellationRequested)
-                await Task.Delay(1000, HttpContext.RequestAborted);
+            // 6) Mantener viva la conexión con heartbeats (nuevo)
+            // En Cloud Run/proxies, si no sale ningún byte por un rato, cortan la conexión.
+            // Los comentarios SSE (líneas que empiezan con ':') NO llegan al frontend.
+            var heartbeatEvery = TimeSpan.FromSeconds(20);
+            var hb = new PeriodicTimer(heartbeatEvery);
 
-            await sub.UnsubscribeAsync(chan);
+            try
+            {
+                while (await hb.WaitForNextTickAsync(HttpContext.RequestAborted))
+                {
+                    await Response.WriteAsync($":hb {DateTime.UtcNow:o}\n\n", HttpContext.RequestAborted);
+                    await Response.Body.FlushAsync(HttpContext.RequestAborted);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // cliente cerró, salir en paz
+            }
+            finally
+            {
+                await sub.UnsubscribeAsync(chan);
+            }
+
             return new EmptyResult();
         }
     }
