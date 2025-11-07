@@ -1,0 +1,14 @@
+﻿# === Migrator image (tiene SDK y dotnet-ef) ===
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS migrate
+WORKDIR /src
+COPY . .
+# Instala dotnet-ef como herramienta global
+RUN dotnet tool install -g dotnet-ef
+ENV PATH="$PATH:/root/.dotnet/tools"
+# Restaura y compila (rápido) para tener el contexto y migraciones listas
+RUN dotnet restore
+RUN dotnet build -c Release
+
+# Comando por defecto: aplicar migraciones del proyecto web
+# Si tu csproj principal no está en raíz, ajusta la ruta al .csproj
+ENTRYPOINT ["/bin/bash","-lc","dotnet ef database update --project BotApp.csproj"]
