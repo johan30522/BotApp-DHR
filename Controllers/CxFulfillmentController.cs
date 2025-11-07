@@ -72,7 +72,7 @@ namespace BotApp.Controllers
                         ["ubicacion"] = null,
                         ["descripcion"] = null
                     };
-                    AcceptAndRun(sp => RunCrearDenunciaAsync(sp, p, userId, sessionId, turnId, ct));
+                    AcceptAndRun(sp => RunCrearDenunciaAsync(sp, p, userId, sessionId, turnId, CancellationToken.None));
                     break;
 
                 case "ConsultarExpediente":
@@ -80,7 +80,7 @@ namespace BotApp.Controllers
                     {
                         ["numeroexpediente"] = null
                     };
-                    AcceptAndRun(sp => RunConsultarExpedienteAsync(sp, p, sessionId, turnId, ct));
+                    AcceptAndRun(sp => RunConsultarExpedienteAsync(sp, p, sessionId, turnId, CancellationToken.None));
                     break;
 
                 case "QnA":
@@ -88,7 +88,7 @@ namespace BotApp.Controllers
                     {
                         ["q"] = null
                     };
-                    AcceptAndRun(sp => RunQnAAsync(sp, p, sessionId, turnId, ct));
+                    AcceptAndRun(sp => RunQnAAsync(sp, p, sessionId, turnId, CancellationToken.None));
                     break;
                 case "EnviarCodigoExpediente":
                     var result = await EnvioCodigoAsyncScoped(p, sessionId, turnId, ct);
@@ -102,7 +102,7 @@ namespace BotApp.Controllers
                         ["numeroExpediente"] = null,
                         ["codigoVerificacion"] = null
                     };
-                    AcceptAndRun(sp => ValidacionCodigoAsync(sp, p, sessionId, turnId, ct));
+                    AcceptAndRun(sp => ValidacionCodigoAsync(sp, p, sessionId, turnId, CancellationToken.None));
                     break;
 
                 case "ValidateParam":
@@ -183,7 +183,8 @@ namespace BotApp.Controllers
                 };
 
                 await _sse.EmitTool(sessionId.ToString(), turnId, "db", "start");
-                var resp = await denuncias.CreateAsync(dto, ct);
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+                var resp = await denuncias.CreateAsync(dto, cts.Token);
                 await _sse.EmitTool(sessionId.ToString(), turnId, "db", "end");
 
                 await _sse.EmitFinal(sessionId.ToString(), turnId, $"Denuncia #{resp.Id} creada correctamente.",
@@ -209,7 +210,8 @@ namespace BotApp.Controllers
                 { await _sse.EmitError(sessionId.ToString(), turnId, "MISSING_PARAM", "Falta el número de expediente.", true); await _sse.EmitDone(sessionId.ToString(), turnId); return; }
 
                 await _sse.EmitProgress(sessionId.ToString(), turnId, $"Consultando expediente {numero}…");
-                var resp = await expedientes.GetByNumeroAsync(numero, ct);
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                var resp = await expedientes.GetByNumeroAsync(numero, cts.Token);
 
                 var text = resp == null ? $"No encontré el expediente {numero}." : $"El expediente {resp.Numero} está en estado: {resp.Estado}.";
                 await _sse.EmitFinal(sessionId.ToString(), turnId, text, new { numero, source = "db" });
@@ -235,8 +237,9 @@ namespace BotApp.Controllers
                 { await _sse.EmitError(sessionId.ToString(), turnId, "EMPTY_QUERY", "¿Podría indicarme su consulta con un poco más de detalle?", true); await _sse.EmitDone(sessionId.ToString(), turnId); return; }
                 _logger.LogDebug("debug 1");
                 await _sse.EmitTool(sessionId.ToString(), turnId, "discovery_search", "start");
-                using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                cts.CancelAfter(TimeSpan.FromSeconds(30));
+
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(45));
+                
                 await _sse.EmitProgress(sessionId.ToString(), turnId, "😴🕒 Estoy Redactando tu respuesta…", new { source = "gemini" });
 
                 var answer = await convRag.AskAsync(sessionId, pregunta, cts.Token);
@@ -251,8 +254,15 @@ namespace BotApp.Controllers
                 await _sse.EmitError(sessionId.ToString(), turnId, "RAG_TIMEOUT", "Estoy tardando más de lo normal. Por favor, intente de nuevo en unos segundos.", true);
                 await _sse.EmitDone(sessionId.ToString(), turnId);
             }
+            catch (Grpc.Core.RpcException rex) when (rex.StatusCode == Grpc.Core.StatusCode.Cancelled)
+            {
+                await _sse.EmitError(sessionId.ToString(), turnId, "RAG_TIMEOUT",
+                    "Estoy tardando más de lo normal. Por favor, intente de nuevo en unos segundos.", true);
+                await _sse.EmitDone(sessionId.ToString(), turnId);
+            }
             catch (Exception ex)
             {
+        
                 await _sse.EmitError(sessionId.ToString(), turnId, "RAG_ERROR", "Tuvimos un inconveniente al consultar la información. Por favor, inténtelo de nuevo.", false);
                 _logger.LogError(ex, "Error en QnA");
                 await _sse.EmitDone(sessionId.ToString(), turnId);
@@ -283,6 +293,7 @@ namespace BotApp.Controllers
 
 
                 _logger.LogDebug($"Validando código {codigo} para expediente {numero}");
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
 
                 var esValido = await codigoSvc.ValidarAsync(numero!, codigo!);
                 if (!esValido)
@@ -297,7 +308,7 @@ namespace BotApp.Controllers
                 _logger.LogDebug("Código válido");
 
                 // Código correcto → traer expediente
-                var expediente = await expedientes.GetByNumeroAsync(numero!, ct);
+                var expediente = await expedientes.GetByNumeroAsync(numero!, cts.Token);
                 var estado = expediente?.Estado ?? "Desconocido";
 
                 await _sse.EmitFinal(sessionId.ToString(), turnId,
@@ -352,14 +363,15 @@ namespace BotApp.Controllers
                         }
                     };
                 }
-
+                using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                cts.CancelAfter(TimeSpan.FromSeconds(20));
                 var expedientes = sp.GetRequiredService<ExpedientesService>();
                 var emailService = sp.GetRequiredService<IEmailService>();
                 var codigoSvc = sp.GetRequiredService<CodigoVerificacionService>();
                 _logger.LogDebug($"Iniciando envío de código para expediente {numero}");
 
                 // 1️⃣ Validar que el expediente exista
-                var expediente = await expedientes.GetByNumeroAsync(numero!, ct);
+                var expediente = await expedientes.GetByNumeroAsync(numero!, cts.Token);
                 if (expediente == null)
                 {
                     _logger.LogDebug($"No se encontró el expediente {numero}");
