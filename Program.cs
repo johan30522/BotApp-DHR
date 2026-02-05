@@ -19,6 +19,7 @@ var builder = WebApplication.CreateBuilder(args);
 // -------------------------------------------------
 // Database: Postgres (Npgsql) — DSN + Password aparte
 // -------------------------------------------------
+
 var dsn = builder.Configuration.GetConnectionString("Postgres"); // base DSN (ideal sin Password)
 var dbPwd = builder.Configuration["Db:Password"];                // secreto aparte
 var cs = dsn ?? string.Empty;
